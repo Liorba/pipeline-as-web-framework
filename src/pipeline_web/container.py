@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pipeline_web.services import InMemoryOrderStore, OrderService
@@ -15,6 +15,16 @@ class ServiceContainer:
 
     settings: Settings
     order_service: OrderService
+    _iceberg_writer: object = field(default=None, repr=False, compare=False)
+
+    @property
+    def iceberg_writer(self):
+        """Lazy Iceberg writer — avoids SqlCatalog init during DAG parsing."""
+        if self._iceberg_writer is None:
+            from pipeline_web.iceberg.writer import IcebergOrderWriter
+
+            self._iceberg_writer = IcebergOrderWriter(self.settings)
+        return self._iceberg_writer
 
 
 def _fixture_path(settings: Settings) -> Path:

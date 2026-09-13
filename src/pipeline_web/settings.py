@@ -17,3 +17,5 @@ class Settings(BaseSettings):
     min_order_total: float = 10.0
     currency: str = "USD"
     store_fixture: str = "sample_orders.json"
+    iceberg_warehouse: str = "./data/warehouse"
+    iceberg_namespace: str = "pipeline"

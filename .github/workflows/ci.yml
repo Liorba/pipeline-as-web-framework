@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  test-core:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,11 +17,40 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
+      - name: Install core + Airflow test deps
+        run: pip install -e ".[dev,airflow]"
 
-      - name: Run unit tests
-        run: python3 -m pytest -v
+      - name: Run unit tests (excluding iceberg)
+        run: python3 -m pytest -v -m "not iceberg"
+
+  test-iceberg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install iceberg test deps (no Airflow)
+        run: pip install -e ".[dev,iceberg]"
+
+      - name: Run iceberg / DuckDB tests
+        run: python3 -m pytest -v tests/test_iceberg.py
+
+  dag-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Airflow for DAG import check
+        run: pip install -e ".[dev,airflow]"
 
       - name: Verify DAG imports
-        run: PYTHONPATH=src:dags python3 -c "from pipeline_as_web_dag import pipeline_as_web_dag; print('DAG OK:', pipeline_as_web_dag.dag_id)"
+        run: make dag-check

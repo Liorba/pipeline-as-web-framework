@@ -7,8 +7,8 @@ Metaphor
 - ServiceContainer  →  app.state / DI graph built at startup
 - XCom + codec      →  serialized context passed between handlers
 
-Three tasks: extract → transform → load. Each handler declares its service
-dependencies in its signature; the ``@inject_services`` decorator resolves them
+Four tasks: extract → transform → load → publish_iceberg. Handlers declare
+service dependencies in their signature; ``@inject_services`` resolves them
 from the ``ServiceContainer`` that round-trips through XCom via the custom backend.
 """
 
@@ -16,8 +16,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from airflow.decorators import dag, task
+
+if TYPE_CHECKING:
+    from pipeline_web.iceberg.writer import IcebergOrderWriter
 
 from pipeline_web.container import ServiceContainer, build_container
 from pipeline_web.di import inject_services
@@ -36,14 +40,13 @@ logger = logging.getLogger(__name__)
     doc_md=__doc__,
 )
 def pipeline_as_web():
-    """Extract → transform → summarize with DI-injected services."""
+    """Extract → transform → summarize → publish to local Iceberg."""
 
-    # Edge bootstrap — instantiate the service graph once (like app factory).
     edge_container: ServiceContainer = build_container()
     logger.info(
-        "Edge bootstrap: built ServiceContainer(app=%s, min_total=%s)",
+        "Edge bootstrap: built ServiceContainer(app=%s, warehouse=%s)",
         edge_container.settings.app_name,
-        edge_container.settings.min_order_total,
+        edge_container.settings.iceberg_warehouse,
     )
 
     @task
@@ -91,13 +94,50 @@ def pipeline_as_web():
             summary["total_revenue"],
             summary["currency"],
         )
-        # TBD: OpenLineage — emit lineage event for this summary dataset
-        # TBD: Iceberg — commit summary rows to an Iceberg table via catalog
-        return summary
+        return {
+            "summary": summary,
+            "orders": transform_payload["orders"],
+            "container": transform_payload["container"],
+        }
+
+    @task
+    @inject_services
+    def publish_iceberg(
+        load_payload: dict,
+        iceberg_writer: "IcebergOrderWriter",
+    ) -> dict:
+        """Handler: commit valid orders to a local Iceberg table (pyiceberg append)."""
+        from pipeline_web.iceberg.isolated import append_orders_isolated, should_use_isolated
+
+        orders = [Order(**item) for item in load_payload["orders"]]
+        if should_use_isolated():
+            result = append_orders_isolated(iceberg_writer._settings, orders)
+            logger.info(
+                "publish_iceberg (isolated): wrote %s orders snapshot_id=%s",
+                result["order_count"],
+                result["snapshot_id"],
+            )
+            return result
+
+        snapshot_id = iceberg_writer.append_orders(orders)
+        metadata_path = str(iceberg_writer.metadata_path())
+        logger.info(
+            "publish_iceberg: wrote %d orders snapshot_id=%s metadata=%s",
+            len(orders),
+            snapshot_id,
+            metadata_path,
+        )
+        return {
+            "snapshot_id": snapshot_id,
+            "metadata_path": metadata_path,
+            "table_root": str(iceberg_writer.table_root()),
+            "order_count": len(orders),
+        }
 
     extracted = extract_orders(edge_container)
     transformed = transform_orders(extracted)
-    load_summary(transformed)
+    loaded = load_summary(transformed)
+    publish_iceberg(loaded)
 
 
 pipeline_as_web_dag = pipeline_as_web()

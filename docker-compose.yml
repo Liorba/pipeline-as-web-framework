@@ -9,11 +9,15 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
     PYTHONPATH: /opt/airflow/src:/opt/airflow/dags
+    PIPELINE_ICEBERG_ISOLATED_PYTHON: /opt/iceberg-venv/bin/python
+    PIPELINE_ICEBERG_WAREHOUSE: /opt/airflow/data/warehouse
     _PIP_ADDITIONAL_REQUIREMENTS: pydantic-settings==2.7.1 pydantic==2.10.4
   volumes:
     - ./dags:/opt/airflow/dags
     - ./src:/opt/airflow/src
+    - ./data:/opt/airflow/data
     - ./logs:/opt/airflow/logs
+    - iceberg-venv:/opt/iceberg-venv
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     postgres:
@@ -39,6 +43,14 @@ services:
     command:
       - -c
       - |
+        python3 -m venv /opt/iceberg-venv
+        /opt/iceberg-venv/bin/pip install --upgrade pip
+        /opt/iceberg-venv/bin/pip install \
+          "pyiceberg[sql-sqlite,pyarrow]==0.12.0" \
+          "pyarrow==18.1.0" \
+          "duckdb==1.2.2" \
+          "pydantic-settings==2.7.1" \
+          "pydantic==2.10.4"
         airflow db migrate
         airflow users create \
           --username admin \
@@ -73,3 +85,4 @@ services:
 
 volumes:
   postgres-db-volume:
+  iceberg-venv:

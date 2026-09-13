@@ -1,13 +1,26 @@
-.PHONY: install test lint dag-check up down trigger logs clean
+.PHONY: install test lint dag-check up down trigger logs clean iceberg-demo
 
 install:
-	pip install -e ".[dev]"
+	pip install -e ".[dev,iceberg]"
 
-test:
-	python3 -m pytest -v
+install-airflow:
+	pip install -e ".[dev,airflow]"
+
+test: test-core test-iceberg
+
+test-core:
+	pip install -e ".[dev,airflow]"
+	python3 -m pytest -v -m "not iceberg"
+
+test-iceberg:
+	pip install -e ".[dev,iceberg]"
+	python3 -m pytest -v tests/test_iceberg.py
 
 dag-check:
 	PYTHONPATH=src:dags python3 -c "from pipeline_as_web_dag import pipeline_as_web_dag; print('DAG OK:', pipeline_as_web_dag.dag_id)"
+
+iceberg-demo:
+	PYTHONPATH=src python3 examples/iceberg_demo.py
 
 up:
 	mkdir -p logs
