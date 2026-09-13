@@ -21,9 +21,14 @@ class ServiceContainer:
     def iceberg_writer(self):
         """Lazy Iceberg writer — avoids SqlCatalog init during DAG parsing."""
         if self._iceberg_writer is None:
-            from pipeline_web.iceberg.writer import IcebergOrderWriter
+            from pipeline_web.iceberg.isolated import should_use_isolated
 
-            self._iceberg_writer = IcebergOrderWriter(self.settings)
+            if should_use_isolated():
+                self._iceberg_writer = _IsolatedIcebergWriterStub(self.settings)
+            else:
+                from pipeline_web.iceberg.writer import IcebergOrderWriter
+
+                self._iceberg_writer = IcebergOrderWriter(self.settings)
         return self._iceberg_writer
 
 
@@ -41,3 +46,10 @@ def build_container(settings: Settings | None = None) -> ServiceContainer:
         currency=settings.currency,
     )
     return ServiceContainer(settings=settings, order_service=order_service)
+
+
+class _IsolatedIcebergWriterStub:
+    """Placeholder when pyiceberg runs in a separate venv (Airflow SQLAlchemy 1.4)."""
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings

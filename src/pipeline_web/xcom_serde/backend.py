@@ -1,22 +1,9 @@
-"""Custom XCom backend that recognizes service-container envelopes.
-
-Why a backend (not only helper functions)?
-------------------------------------------
-TaskFlow tasks return Python objects that Airflow persists to XCom. By
-subclassing ``BaseXCom``, we hook serialize/deserialize centrally: when a
-task payload contains a ``ServiceContainer`` (top-level or nested in dicts /
-lists), the codec runs instead of pickle. This works in local
-``airflow standalone`` and docker-compose without extra plugins.
-
-For all other values we fall back to Airflow's default JSON serialization.
-"""
+"""Custom XCom backend that recognizes service-container envelopes."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
-
-from airflow.models.xcom import BaseXCom
 
 from pipeline_web.container import ServiceContainer
 from pipeline_web.xcom_serde.codec import (
@@ -25,11 +12,11 @@ from pipeline_web.xcom_serde.codec import (
 )
 
 
-class ServiceContainerXComBackend(BaseXCom):
-    """XCom backend with explicit service-container codec support."""
+class _ServiceContainerXComBackendMixin:
+    """Implementation mixin — combined with BaseXCom lazily to avoid circular imports."""
 
     @staticmethod
-    def serialize_value(value: Any) -> Any:
+    def _serialize_item(value: Any) -> Any:
         if value is None or isinstance(value, (bool, int, float, str)):
             return value
         if isinstance(value, ServiceContainer):
@@ -37,19 +24,44 @@ class ServiceContainerXComBackend(BaseXCom):
         if is_service_container_envelope(value):
             return value
         if isinstance(value, dict):
-            return {key: ServiceContainerXComBackend.serialize_value(item) for key, item in value.items()}
+            return {key: _ServiceContainerXComBackendMixin._serialize_item(item) for key, item in value.items()}
         if isinstance(value, list):
-            return [ServiceContainerXComBackend.serialize_value(item) for item in value]
+            return [_ServiceContainerXComBackendMixin._serialize_item(item) for item in value]
         if isinstance(value, tuple):
-            return tuple(ServiceContainerXComBackend.serialize_value(item) for item in value)
-        return BaseXCom.serialize_value(value)
+            return tuple(_ServiceContainerXComBackendMixin._serialize_item(item) for item in value)
+        return value
 
     @staticmethod
-    def deserialize_value(result: Any) -> Any:
+    def serialize_value(
+        value: Any,
+        *,
+        key: str | None = None,
+        task_id: str | None = None,
+        dag_id: str | None = None,
+        run_id: str | None = None,
+        map_index: int | None = None,
+    ) -> Any:
+        serialized = _ServiceContainerXComBackendMixin._serialize_item(value)
+        try:
+            return json.dumps(serialized).encode("UTF-8")
+        except (TypeError, ValueError):
+            from airflow.models.xcom import BaseXCom
+
+            return BaseXCom.serialize_value(
+                value,
+                key=key,
+                task_id=task_id,
+                dag_id=dag_id,
+                run_id=run_id,
+                map_index=map_index,
+            )
+
+    @staticmethod
+    def _deserialize_item(result: Any) -> Any:
         if result is None or isinstance(result, (bool, int, float, str)):
             return result
         if isinstance(result, bytes):
-            return result.decode("utf-8")
+            result = json.loads(result.decode("utf-8"))
         if isinstance(result, ServiceContainer):
             return result
         if is_service_container_envelope(result):
@@ -65,9 +77,44 @@ class ServiceContainerXComBackend(BaseXCom):
         if isinstance(result, dict):
             if is_service_container_envelope(result):
                 return ServiceContainerCodec.decode(result)
-            return {key: ServiceContainerXComBackend.deserialize_value(item) for key, item in result.items()}
+            return {key: _ServiceContainerXComBackendMixin._deserialize_item(item) for key, item in result.items()}
         if isinstance(result, list):
-            return [ServiceContainerXComBackend.deserialize_value(item) for item in result]
+            return [_ServiceContainerXComBackendMixin._deserialize_item(item) for item in result]
         if isinstance(result, tuple):
-            return tuple(ServiceContainerXComBackend.deserialize_value(item) for item in result)
-        return BaseXCom.deserialize_value(result)
+            return tuple(_ServiceContainerXComBackendMixin._deserialize_item(item) for item in result)
+        return result
+
+    @staticmethod
+    def deserialize_value(result: Any) -> Any:
+        raw = result.value if hasattr(result, "value") else result
+        if raw is None:
+            return None
+        if isinstance(raw, bytes):
+            try:
+                raw = json.loads(raw.decode("UTF-8"))
+            except json.JSONDecodeError:
+                from airflow.models.xcom import BaseXCom
+
+                return BaseXCom.deserialize_value(result)
+        return _ServiceContainerXComBackendMixin._deserialize_item(raw)
+
+
+_ServiceContainerXComBackendClass: type | None = None
+
+
+def _build_backend_class() -> type:
+    from airflow.models.xcom import BaseXCom
+
+    class ServiceContainerXComBackend(_ServiceContainerXComBackendMixin, BaseXCom):
+        """XCom backend with explicit service-container codec support."""
+
+    return ServiceContainerXComBackend
+
+
+def __getattr__(name: str) -> type:
+    global _ServiceContainerXComBackendClass
+    if name == "ServiceContainerXComBackend":
+        if _ServiceContainerXComBackendClass is None:
+            _ServiceContainerXComBackendClass = _build_backend_class()
+        return _ServiceContainerXComBackendClass
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

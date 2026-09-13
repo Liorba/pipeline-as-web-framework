@@ -6,7 +6,7 @@ import pytest
 
 from pipeline_web.container import ServiceContainer, build_container
 from pipeline_web.settings import Settings
-from pipeline_web.xcom_serde.backend import ServiceContainerXComBackend
+from pipeline_web.xcom_serde import backend as backend_module
 from pipeline_web.xcom_serde.codec import (
     SERVICE_CONTAINER_KEY,
     ServiceContainerCodec,
@@ -14,6 +14,8 @@ from pipeline_web.xcom_serde.codec import (
     encode_container,
     is_service_container_envelope,
 )
+
+ServiceContainerXComBackend = backend_module.ServiceContainerXComBackend
 
 
 def test_encode_produces_documented_envelope() -> None:
@@ -46,9 +48,10 @@ def test_json_round_trip_via_string() -> None:
 def test_backend_serializes_nested_container_in_dict() -> None:
     container = build_container()
     payload = {"orders": [{"order_id": "1"}], "container": container}
-    serialized = ServiceContainerXComBackend.serialize_value(payload)
+    serialized = ServiceContainerXComBackend._serialize_item(payload)
     assert is_service_container_envelope(serialized["container"])
-    restored = ServiceContainerXComBackend.deserialize_value(serialized)
+    raw = json.loads(ServiceContainerXComBackend.serialize_value(payload).decode("UTF-8"))
+    restored = ServiceContainerXComBackend._deserialize_item(raw)
     assert isinstance(restored["container"], ServiceContainer)
     assert restored["orders"] == [{"order_id": "1"}]
 
