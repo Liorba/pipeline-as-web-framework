@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install core + Airflow test deps
+        run: pip install -e ".[dev,airflow]"
+
+      - name: Run unit tests (excluding iceberg)
+        run: python3 -m pytest -v -m "not iceberg"
+
+  test-iceberg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install iceberg test deps (no Airflow)
+        run: pip install -e ".[dev,iceberg]"
+
+      - name: Run iceberg / DuckDB tests
+        run: python3 -m pytest -v tests/test_iceberg.py
+
+  dag-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Airflow for DAG import check
+        run: pip install -e ".[dev,airflow]"
+
+      - name: Verify DAG imports
+        run: make dag-check

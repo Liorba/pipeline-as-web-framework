@@ -1,0 +1,7 @@
+[
+  {"order_id": " o-100 ", "customer": "alice smith", "total": 42.5, "status": "completed"},
+  {"order_id": "o-101", "customer": "bob jones", "total": 5.0, "status": "completed"},
+  {"order_id": "o-102", "customer": "carol lee", "total": 120.0, "status": "pending"},
+  {"order_id": "o-103", "customer": "dan nguyen", "total": 18.75, "status": "completed"},
+  {"order_id": "o-104", "customer": "erin park", "total": 99.99, "status": "completed"}
+]

@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pipeline-web"
+version = "0.1.0"
+description = "Runnable demo: data pipeline as a web framework (Airflow TaskFlow + DI via XCom serde)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic-settings==2.7.1",
+    "pydantic==2.10.4",
+]
+
+[project.optional-dependencies]
+iceberg = [
+    "pyiceberg[sql-sqlite,pyarrow]==0.12.0",
+    "pyarrow==18.1.0",
+    "duckdb==1.2.2",
+]
+airflow = [
+    "apache-airflow==2.10.4",
+]
+dev = [
+    "pytest==8.3.4",
+    "pytest-cov==6.0.0",
+]
+
+[project.scripts]
+pipeline-iceberg-demo = "pipeline_web.iceberg.demo:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pipeline_web = ["fixtures/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "dags"]
+markers = [
+    "iceberg: tests requiring pyiceberg + DuckDB (SQLAlchemy 2.x, no Airflow)",
+]
